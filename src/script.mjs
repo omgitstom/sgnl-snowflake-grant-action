@@ -131,7 +131,7 @@ async function getAuthorizationHeader(context) {
   throw new FatalError('No authentication credentials found. Configure BEARER_AUTH_TOKEN, OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN, or OAUTH2_CLIENT_CREDENTIALS_CLIENT_SECRET.');
 }
 
-async function executeStatement(address, sql, authHeader, tokenType) {
+async function executeStatement(address, sql, authHeader, tokenType, warehouse) {
   const headers = {
     'Authorization': authHeader,
     'Content-Type': 'application/json',
@@ -145,7 +145,7 @@ async function executeStatement(address, sql, authHeader, tokenType) {
   const response = await fetch(`${address}/api/v2/statements`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ statement: sql, timeout: 30, warehouse: 'COMPUTE_WH' }),
+    body: JSON.stringify({ statement: sql, timeout: 30, warehouse: warehouse }),
   });
 
   if (!response.ok) {
@@ -199,11 +199,12 @@ export default {
     const tokenType = getTokenType(params, context);
     const authHeader = await getAuthorizationHeader(context);
     const address = getBaseURL(params, context);
+    const warehouse = params.warehouse || (context.environment && context.environment.WAREHOUSE) || 'COMPUTE_WH';
 
     console.log(`Executing ${action} for user ${snowflakeUser}${resourceType ? ` resource ${resourceType}` : ''}`);
 
     const sql = buildSql(action, snowflakeUser, resourceType);
-    await executeStatement(address, sql, authHeader, tokenType);
+    await executeStatement(address, sql, authHeader, tokenType, warehouse);
 
     console.log(`Successfully completed ${action} for ${snowflakeUser}`);
 

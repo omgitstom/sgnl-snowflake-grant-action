@@ -76,6 +76,10 @@ environment:
     type: text
     description: Snowflake SQL API base URL (e.g. https://<account>.snowflakecomputing.com)
 
+  WAREHOUSE:
+    type: text
+    description: Snowflake warehouse to use for SQL execution (e.g. COMPUTE_WH)
+
   OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID:
     type: text
     description: Client ID for OAuth2 Client Credentials flow
