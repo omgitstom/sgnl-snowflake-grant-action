@@ -28,7 +28,7 @@ inputs:
 
   address:
     type: text
-    description: Snowflake SQL API base URL. Defaults to the account URL configured at build time.
+    description: Snowflake SQL API base URL (e.g. https://<account>.snowflakecomputing.com). Falls back to ADDRESS environment variable.
     required: false
     validation:
       max: 200
@@ -37,7 +37,7 @@ authentication:
   optional_one_of:
     - bearer_token:
         token:
-          env: OAUTH_TOKEN
+          secret: BEARER_AUTH_TOKEN
           description: Snowflake OAuth bearer token
     - oauth2_client_credentials:
         token_url:
@@ -46,7 +46,6 @@ authentication:
           description: OAuth client ID from SYSTEM$SHOW_OAUTH_CLIENT_SECRETS
         client_secret:
           description: OAuth client secret from SYSTEM$SHOW_OAUTH_CLIENT_SECRETS
-        token_env: OAUTH_TOKEN
 
 runtime:
   node_version: 22

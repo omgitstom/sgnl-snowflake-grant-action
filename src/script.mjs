@@ -1,8 +1,8 @@
 /**
  * Snowflake Grant Sync
  *
- * Syncs SGNL access decisions to Snowflake's sgnl_access_grants table via
- * the Snowflake SQL API. Supports grant, revoke, and full_revoke operations.
+ * Syncs SGNL access decisions to Snowflake by writing or deleting rows in the
+ * sgnl_access_grants table via the Snowflake SQL API.
  */
 
 class RetryableError extends Error {
@@ -32,19 +32,63 @@ function validateInputs(params) {
   }
 }
 
-function getTokenType(context) {
-  if (context.env.SNOWFLAKE_AUTH_TOKEN_TYPE) {
-    return context.env.SNOWFLAKE_AUTH_TOKEN_TYPE;
+/**
+ * Resolve the base URL. Checks params.address first, then context.env.ADDRESS,
+ * matching the convention of @sgnl-actions/utils getBaseURL.
+ */
+function getBaseURL(params, context) {
+  const address = params.address || (context.env && context.env.ADDRESS) || '';
+  if (!address) {
+    throw new FatalError('address is required — set it as an input or via the ADDRESS environment variable');
   }
-  return 'OAUTH';
+  return address.replace(/\/$/, '');
 }
 
-async function executeStatement(address, sql, token, tokenType) {
+/**
+ * Build the Authorization header value. Priority order matches @sgnl-actions/utils:
+ *   1. Bearer token (BEARER_AUTH_TOKEN secret)
+ *   2. OAuth2 authorization code access token
+ *   3. OAuth2 client credentials (fetches a new token)
+ */
+async function getAuthorizationHeader(context) {
+  const secrets = context.secrets || {};
+  const env = context.env || {};
+
+  if (secrets.BEARER_AUTH_TOKEN) {
+    return `Bearer ${secrets.BEARER_AUTH_TOKEN}`;
+  }
+
+  if (secrets.OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN) {
+    return `Bearer ${secrets.OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN}`;
+  }
+
+  if (secrets.CLIENT_ID && secrets.CLIENT_SECRET && env.TOKEN_URL) {
+    const credentials = Buffer.from(`${secrets.CLIENT_ID}:${secrets.CLIENT_SECRET}`).toString('base64');
+    const response = await fetch(env.TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new FatalError(`OAuth2 token fetch failed ${response.status}: ${body}`);
+    }
+    const data = await response.json();
+    return `Bearer ${data.access_token}`;
+  }
+
+  throw new FatalError('No authentication credentials found. Configure BEARER_AUTH_TOKEN, OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN, or OAuth2 client credentials.');
+}
+
+async function executeStatement(address, sql, authHeader) {
   const response = await fetch(`${address}/api/v2/statements`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${token}`,
-      'X-Snowflake-Authorization-Token-Type': tokenType,
+      'Authorization': authHeader,
+      'X-Snowflake-Authorization-Token-Type': 'OAUTH',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ statement: sql, timeout: 30 }),
@@ -101,18 +145,13 @@ export default {
     const snowflakeUser = params.snowflake_user.toUpperCase(); // current_user() returns uppercase
     const resourceType = params.resource_type || '';
     const action = params.action;
-    const address = (params.address || 'https://uofnoea-wyc03001.snowflakecomputing.com').replace(/\/$/, '');
-
-    const token = context.env.OAUTH_TOKEN;
-    if (!token) {
-      throw new FatalError('OAUTH_TOKEN environment variable is required');
-    }
-    const tokenType = getTokenType(context);
+    const address = getBaseURL(params, context);
+    const authHeader = await getAuthorizationHeader(context);
 
     console.log(`Executing ${action} for user ${snowflakeUser}${resourceType ? ` resource ${resourceType}` : ''}`);
 
     const sql = buildSql(action, snowflakeUser, resourceType);
-    await executeStatement(address, sql, token, tokenType);
+    await executeStatement(address, sql, authHeader);
 
     console.log(`Successfully completed ${action} for ${snowflakeUser}`);
 
