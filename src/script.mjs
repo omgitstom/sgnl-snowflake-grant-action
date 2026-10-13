@@ -37,10 +37,9 @@ function validateInputs(params) {
  * matching the convention of @sgnl-actions/utils getBaseURL.
  */
 function getBaseURL(params, context) {
-  const address = params.address || (context.env && context.env.ADDRESS) || '';
-  if (!address) {
-    throw new FatalError('address is required — set it as an input or via the ADDRESS environment variable');
-  }
+  const address = params.address
+    || (context.env && context.env.ADDRESS)
+    || 'https://uofnoea-wyc03001.snowflakecomputing.com';
   return address.replace(/\/$/, '');
 }
 
