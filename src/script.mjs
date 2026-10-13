@@ -62,7 +62,7 @@ function getTokenType(params, context) {
     return override;
   }
 
-  if (secrets.BEARER_AUTH_TOKEN) return 'KEYPAIR_JWT';
+  if (secrets.BEARER_AUTH_TOKEN) return 'PROGRAMMATIC_ACCESS_TOKEN';
   if (secrets.OAUTH2_CLIENT_CREDENTIALS_CLIENT_SECRET || secrets.OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN) return 'OAUTH';
   return null;
 }
