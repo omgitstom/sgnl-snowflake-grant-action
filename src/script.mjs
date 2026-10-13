@@ -84,23 +84,34 @@ async function getAuthorizationHeader(context) {
     const clientId = environment.OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID;
     const clientSecret = secrets.OAUTH2_CLIENT_CREDENTIALS_CLIENT_SECRET;
     const scope = environment.OAUTH2_CLIENT_CREDENTIALS_SCOPE || '';
+    const audience = environment.OAUTH2_CLIENT_CREDENTIALS_AUDIENCE || '';
+    const authStyle = environment.OAUTH2_CLIENT_CREDENTIALS_AUTH_STYLE || '';
 
     if (!tokenUrl || !clientId) {
       throw new FatalError('OAuth2 client credentials require OAUTH2_CLIENT_CREDENTIALS_TOKEN_URL and OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID');
     }
 
-    const credentials = btoa(`${clientId}:${clientSecret}`);
-    const body = scope
-      ? `grant_type=client_credentials&scope=${encodeURIComponent(scope)}`
-      : 'grant_type=client_credentials';
+    const params = new URLSearchParams();
+    params.append('grant_type', 'client_credentials');
+    if (scope) params.append('scope', scope);
+    if (audience) params.append('audience', audience);
+
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+    };
+
+    if (authStyle === 'InParams') {
+      params.append('client_id', clientId);
+      params.append('client_secret', clientSecret);
+    } else {
+      headers['Authorization'] = `Basic ${btoa(`${clientId}:${clientSecret}`)}`;
+    }
 
     const response = await fetch(tokenUrl, {
       method: 'POST',
-      headers: {
-        'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
+      headers,
+      body: params.toString(),
     });
 
     if (!response.ok) {
