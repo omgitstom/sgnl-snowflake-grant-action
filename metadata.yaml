@@ -36,7 +36,7 @@ inputs:
 
   warehouse:
     type: text
-    description: Snowflake warehouse to use for SQL execution (e.g. COMPUTE_WH). Falls back to WAREHOUSE environment variable.
+    description: Snowflake warehouse to use for SQL execution (e.g. COMPUTE_WH).
     required: false
     validation:
       min: 1
@@ -83,10 +83,6 @@ environment:
   ADDRESS:
     type: text
     description: Snowflake SQL API base URL (e.g. https://<account>.snowflakecomputing.com)
-
-  WAREHOUSE:
-    type: text
-    description: Snowflake warehouse to use for SQL execution (e.g. COMPUTE_WH)
 
   OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID:
     type: text
