@@ -145,7 +145,7 @@ async function executeStatement(address, sql, authHeader, tokenType) {
   const response = await fetch(`${address}/api/v2/statements`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ statement: sql, timeout: 30 }),
+    body: JSON.stringify({ statement: sql, timeout: 30, warehouse: 'COMPUTE_WH' }),
   });
 
   if (!response.ok) {
