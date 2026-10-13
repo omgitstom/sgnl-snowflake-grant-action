@@ -89,7 +89,7 @@ async function getAuthorizationHeader(context) {
       throw new FatalError('OAuth2 client credentials require OAUTH2_CLIENT_CREDENTIALS_TOKEN_URL and OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID');
     }
 
-    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const credentials = btoa(`${clientId}:${clientSecret}`);
     const body = scope
       ? `grant_type=client_credentials&scope=${encodeURIComponent(scope)}`
       : 'grant_type=client_credentials';
