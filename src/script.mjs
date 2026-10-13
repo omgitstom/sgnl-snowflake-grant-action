@@ -91,6 +91,8 @@ async function getAuthorizationHeader(context) {
       throw new FatalError('OAuth2 client credentials require OAUTH2_CLIENT_CREDENTIALS_TOKEN_URL and OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID');
     }
 
+    console.log(`OAuth2 token request: url=${tokenUrl} clientId=${clientId} scope=${scope} authStyle=${authStyle || 'InHeader'}`);
+
     const params = new URLSearchParams();
     params.append('grant_type', 'client_credentials');
     if (scope) params.append('scope', scope);
@@ -108,6 +110,8 @@ async function getAuthorizationHeader(context) {
       headers['Authorization'] = `Basic ${btoa(`${clientId}:${clientSecret}`)}`;
     }
 
+    console.log(`OAuth2 token request body: ${params.toString()}`);
+
     const response = await fetch(tokenUrl, {
       method: 'POST',
       headers,
@@ -116,6 +120,7 @@ async function getAuthorizationHeader(context) {
 
     if (!response.ok) {
       const text = await response.text();
+      console.error(`OAuth2 token response status=${response.status} body=${text}`);
       throw new FatalError(`OAuth2 token fetch failed ${response.status}: ${text}`);
     }
 
