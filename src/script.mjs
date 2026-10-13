@@ -8,14 +8,14 @@
 class RetryableError extends Error {
   constructor(message) {
     super(message);
-    this.name = 'RetryableError';
+    this.retryable = true;
   }
 }
 
 class FatalError extends Error {
   constructor(message) {
     super(message);
-    this.name = 'FatalError';
+    this.retryable = false;
   }
 }
 
@@ -32,26 +32,44 @@ function validateInputs(params) {
   }
 }
 
-/**
- * Resolve the base URL. Checks params.address first, then context.env.ADDRESS,
- * matching the convention of @sgnl-actions/utils getBaseURL.
- */
+// context.environment for non-secret config, context.secrets for credentials
+// — mirrors the shape used by @sgnl-actions/utils getBaseURL / getAuthorizationHeader
 function getBaseURL(params, context) {
-  const address = params.address
-    || (context.env && context.env.ADDRESS)
-    || 'https://uofnoea-wyc03001.snowflakecomputing.com';
+  const address = params.address || (context.environment && context.environment.ADDRESS) || '';
+  if (!address) {
+    throw new FatalError('address is required — set params.address or configure ADDRESS in the action environment');
+  }
   return address.replace(/\/$/, '');
 }
 
-/**
- * Build the Authorization header value. Priority order matches @sgnl-actions/utils:
- *   1. Bearer token (BEARER_AUTH_TOKEN secret)
- *   2. OAuth2 authorization code access token
- *   3. OAuth2 client credentials (fetches a new token)
- */
+// Valid token type values from Snowflake SQL API auth docs
+const VALID_TOKEN_TYPES = new Set([
+  'KEYPAIR_JWT',
+  'OAUTH',
+  'PROGRAMMATIC_ACCESS_TOKEN',
+  'WORKLOAD_IDENTITY_FEDERATION',
+]);
+
+function getTokenType(params, context) {
+  const secrets = context.secrets || {};
+
+  const override = params.snowflake_auth_token_type;
+  if (override) {
+    if (override === 'AUTO') return null;
+    if (!VALID_TOKEN_TYPES.has(override)) {
+      throw new FatalError(`Invalid snowflake_auth_token_type "${override}". Valid: ${[...VALID_TOKEN_TYPES].join(', ')}, AUTO`);
+    }
+    return override;
+  }
+
+  if (secrets.BEARER_AUTH_TOKEN) return 'KEYPAIR_JWT';
+  if (secrets.OAUTH2_CLIENT_CREDENTIALS_CLIENT_SECRET || secrets.OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN) return 'OAUTH';
+  return null;
+}
+
 async function getAuthorizationHeader(context) {
   const secrets = context.secrets || {};
-  const env = context.env || {};
+  const environment = context.environment || {};
 
   if (secrets.BEARER_AUTH_TOKEN) {
     return `Bearer ${secrets.BEARER_AUTH_TOKEN}`;
@@ -61,51 +79,66 @@ async function getAuthorizationHeader(context) {
     return `Bearer ${secrets.OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN}`;
   }
 
-  if (secrets.CLIENT_ID && secrets.CLIENT_SECRET && env.TOKEN_URL) {
-    const credentials = Buffer.from(`${secrets.CLIENT_ID}:${secrets.CLIENT_SECRET}`).toString('base64');
-    const response = await fetch(env.TOKEN_URL, {
+  if (secrets.OAUTH2_CLIENT_CREDENTIALS_CLIENT_SECRET) {
+    const tokenUrl = environment.OAUTH2_CLIENT_CREDENTIALS_TOKEN_URL;
+    const clientId = environment.OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID;
+    const clientSecret = secrets.OAUTH2_CLIENT_CREDENTIALS_CLIENT_SECRET;
+    const scope = environment.OAUTH2_CLIENT_CREDENTIALS_SCOPE || '';
+
+    if (!tokenUrl || !clientId) {
+      throw new FatalError('OAuth2 client credentials require OAUTH2_CLIENT_CREDENTIALS_TOKEN_URL and OAUTH2_CLIENT_CREDENTIALS_CLIENT_ID');
+    }
+
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const body = scope
+      ? `grant_type=client_credentials&scope=${encodeURIComponent(scope)}`
+      : 'grant_type=client_credentials';
+
+    const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${credentials}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: 'grant_type=client_credentials',
+      body,
     });
+
     if (!response.ok) {
-      const body = await response.text();
-      throw new FatalError(`OAuth2 token fetch failed ${response.status}: ${body}`);
+      const text = await response.text();
+      throw new FatalError(`OAuth2 token fetch failed ${response.status}: ${text}`);
     }
+
     const data = await response.json();
     return `Bearer ${data.access_token}`;
   }
 
-  throw new FatalError('No authentication credentials found. Configure BEARER_AUTH_TOKEN, OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN, or OAuth2 client credentials.');
+  throw new FatalError('No authentication credentials found. Configure BEARER_AUTH_TOKEN, OAUTH2_AUTHORIZATION_CODE_ACCESS_TOKEN, or OAUTH2_CLIENT_CREDENTIALS_CLIENT_SECRET.');
 }
 
-async function executeStatement(address, sql, authHeader) {
+async function executeStatement(address, sql, authHeader, tokenType) {
+  const headers = {
+    'Authorization': authHeader,
+    'Content-Type': 'application/json',
+    'Accept': '*/*',
+  };
+
+  if (tokenType) {
+    headers['X-Snowflake-Authorization-Token-Type'] = tokenType;
+  }
+
   const response = await fetch(`${address}/api/v2/statements`, {
     method: 'POST',
-    headers: {
-      'Authorization': authHeader,
-      'X-Snowflake-Authorization-Token-Type': 'OAUTH',
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({ statement: sql, timeout: 30 }),
   });
 
-  if (response.status === 429) {
-    throw new RetryableError('Snowflake SQL API rate limit exceeded');
-  }
-  if (response.status === 401 || response.status === 403) {
-    const body = await response.text();
-    throw new FatalError(`Snowflake SQL API auth failure ${response.status}: ${body}`);
-  }
-  if (response.status >= 500) {
-    const body = await response.text();
-    throw new RetryableError(`Snowflake SQL API server error ${response.status}: ${body}`);
-  }
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 429) throw new RetryableError('Snowflake SQL API rate limit exceeded');
+    if (response.status === 401) throw new FatalError('Invalid or expired authentication token');
+    if (response.status === 403) throw new FatalError('Insufficient permissions to execute statement');
+    if (response.status === 422) throw new FatalError(`Invalid SQL statement: ${body}`);
+    if (response.status >= 500) throw new RetryableError(`Snowflake API server error ${response.status}`);
     throw new FatalError(`Snowflake SQL API error ${response.status}: ${body}`);
   }
 
@@ -139,18 +172,22 @@ function buildSql(action, snowflakeUser, resourceType) {
 
 export default {
   invoke: async (params, context) => {
+    console.log('Starting Snowflake Grant Sync action');
+
     validateInputs(params);
 
     const snowflakeUser = params.snowflake_user.toUpperCase(); // current_user() returns uppercase
     const resourceType = params.resource_type || '';
     const action = params.action;
-    const address = getBaseURL(params, context);
+
+    const tokenType = getTokenType(params, context);
     const authHeader = await getAuthorizationHeader(context);
+    const address = getBaseURL(params, context);
 
     console.log(`Executing ${action} for user ${snowflakeUser}${resourceType ? ` resource ${resourceType}` : ''}`);
 
     const sql = buildSql(action, snowflakeUser, resourceType);
-    await executeStatement(address, sql, authHeader);
+    await executeStatement(address, sql, authHeader, tokenType);
 
     console.log(`Successfully completed ${action} for ${snowflakeUser}`);
 
@@ -165,8 +202,8 @@ export default {
 
   error: async (params, _context) => {
     const { error } = params;
-    console.error(`Job failed: ${error.message}`);
-    throw new Error(`Unable to recover: ${error.message}`);
+    console.error(`Error handler invoked: ${error?.message}`);
+    throw error;
   },
 
   halt: async (params, _context) => {
@@ -174,7 +211,7 @@ export default {
     console.log(`Job halted: ${reason}`);
     return {
       status: 'halted',
-      reason,
+      reason: reason || 'unknown',
       halted_at: new Date().toISOString(),
     };
   },
