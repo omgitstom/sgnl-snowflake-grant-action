@@ -1,0 +1,38 @@
+{
+  "name": "@sgnl/snowflake-grant-sync",
+  "description": "Sync SGNL access decisions to Snowflake sgnl_access_grants table via the SQL API",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": "SGNL Engineering",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "rollup -c && node scripts/generate-licenses.js",
+    "build:watch": "rollup -c -w",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
+    "validate": "node scripts/validate-metadata.js",
+    "dev": "node scripts/dev-runner.js"
+  },
+  "devDependencies": {
+    "@sgnl-actions/eslint-config": "github:sgnl-actions/eslint-config",
+    "@sgnl-actions/rollup-config": "github:sgnl-actions/rollup-config",
+    "eslint": "^10.0.1",
+    "jest": "^30.4.2",
+    "rollup": "^4.59.0"
+  },
+  "overrides": {
+    "serialize-javascript": ">=7.0.5"
+  },
+  "keywords": [
+    "sgnl",
+    "job",
+    "snowflake",
+    "grants",
+    "row-access-policy",
+    "identity",
+    "security"
+  ]
+}

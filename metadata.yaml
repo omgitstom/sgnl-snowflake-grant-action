@@ -1,0 +1,75 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/sgnl-actions/schemas/main/metadata.schema.json
+name: snowflake-grant-sync
+description: Sync SGNL access decisions to Snowflake by writing or deleting rows in the sgnl_access_grants table via the Snowflake SQL API
+
+inputs:
+  snowflake_user:
+    type: text
+    description: Snowflake username (plain login name, e.g. "alice"). Will be uppercased automatically to match current_user() behavior.
+    required: true
+    validation:
+      min: 1
+      max: 100
+
+  action:
+    type: text
+    description: Operation to perform — "grant" upserts a row, "revoke" deletes a specific resource row, "full_revoke" deletes all rows for the user
+    required: true
+    validation:
+      min: 1
+      max: 20
+
+  resource_type:
+    type: text
+    description: The resource type (e.g. "Engineering", "Finance"). Required for grant and revoke; ignored for full_revoke.
+    required: false
+    validation:
+      max: 100
+
+  address:
+    type: text
+    description: Snowflake SQL API base URL. Defaults to the account URL configured at build time.
+    required: false
+    validation:
+      max: 200
+
+authentication:
+  optional_one_of:
+    - bearer_token:
+        token:
+          env: OAUTH_TOKEN
+          description: Snowflake OAuth bearer token
+    - oauth2_client_credentials:
+        token_url:
+          description: Snowflake OAuth token endpoint (e.g. https://<account>.snowflakecomputing.com/oauth/token)
+        client_id:
+          description: OAuth client ID from SYSTEM$SHOW_OAUTH_CLIENT_SECRETS
+        client_secret:
+          description: OAuth client secret from SYSTEM$SHOW_OAUTH_CLIENT_SECRETS
+        token_env: OAUTH_TOKEN
+
+runtime:
+  node_version: 22
+  memory_mb: 128
+  timeout_seconds: 30
+
+outputs:
+  status:
+    type: text
+    description: Result of the operation ("ok")
+
+  action:
+    type: text
+    description: The action that was performed
+
+  snowflake_user:
+    type: text
+    description: The Snowflake username (uppercased) that was modified
+
+  resource_type:
+    type: text
+    description: The resource type that was granted or revoked
+
+  completed_at:
+    type: datetime
+    description: When the operation completed (ISO 8601)
