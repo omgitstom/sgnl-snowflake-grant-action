@@ -199,7 +199,7 @@ export default {
     const tokenType = getTokenType(params, context);
     const authHeader = await getAuthorizationHeader(context);
     const address = getBaseURL(params, context);
-    const warehouse = params.warehouse || (context.environment && context.environment.WAREHOUSE) || 'COMPUTE_WH';
+    const warehouse = params.warehouse || 'COMPUTE_WH';
 
     console.log(`Executing ${action} for user ${snowflakeUser}${resourceType ? ` resource ${resourceType}` : ''}`);
 
